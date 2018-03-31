@@ -50,6 +50,7 @@ pipeline {
                     sh "make nuttx_px4fmu-v3_rtps"
                     sh "make sizes"
                     sh "ccache -s"
+                    stash(allowEmpty: true, includes: 'build/**/*.px4', name: 'px4_binaries')
                     archiveArtifacts(allowEmptyArchive: true, artifacts: 'build/**/*.px4, build/**/*.elf', fingerprint: true, onlyIfSuccessful: true)
                     sh "make distclean"
                   }
@@ -496,6 +497,9 @@ pipeline {
 
       steps {
         sh 'echo "uploading to S3"'
+        unstash 'px4_binaries'
+        sh 'ls'
+        sh 'find . -name *.px4'
       }
     }
   } // stages
@@ -523,6 +527,7 @@ def createBuildNode(String docker_repo, String target) {
           sh('make ' + target)
           sh('ccache -s')
           sh('make sizes')
+          stash(allowEmpty: true, includes: 'build/**/*.px4', name: 'px4_binaries')
           archiveArtifacts(allowEmptyArchive: true, artifacts: 'build/**/*.px4, build/**/*.elf', fingerprint: true, onlyIfSuccessful: true)
           sh('make distclean')
         }
