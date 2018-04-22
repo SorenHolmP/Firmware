@@ -152,6 +152,24 @@ set(config_module_list
 	examples/segway
 
 	#
+	#SHP tries his best from now on.
+	#
+	examples/shp_2004
+
+	#
+	#xogenous kalman filter
+	#
+	examples/xkf
+
+	#
+	#shp_driver
+	#	
+	#examples/shp_driver	
+	#examples/shp_driver2
+	
+	examples/shp_lol
+
+	#
 	# Demo apps
 	#
 

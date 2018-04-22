@@ -38,46 +38,39 @@
  * @author Example User <mail@example.com>
  */
 
-#include <px4_config.h>
-#include <px4_tasks.h>
-#include <px4_posix.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <poll.h>
-#include <string.h>
-#include <math.h>
 
-#include <uORB/uORB.h>
-#include <uORB/topics/sensor_combined.h>
-#include <uORB/topics/vehicle_attitude.h>
+#include "xkf.h"
 
-__EXPORT int px4_simple_app_main(int argc, char *argv[]);
+extern "C" __EXPORT int xkf_main(int argc, char *argv[]); //Et eller andet med C vs cpp filer
 
-int px4_simple_app_main(int argc, char *argv[])
+xkf::xkf()
 {
-    PX4_INFO("Hello Sky!");
+    local_position_fd = orb_subscribe(ORB_ID(vehicle_local_position));
+    attitude_fd = orb_subscribe(ORB_ID(vehicle_attitude));
+    //orb_set_interval(local_position_fd,200); //update rate 1ms
+    //orb_set_interval(attitude_fd, 200);
 
-    /* subscribe to sensor_combined topic */
-    int sensor_sub_fd = orb_subscribe(ORB_ID(sensor_combined));
-    /* limit the update rate to 5 Hz */
-    orb_set_interval(sensor_sub_fd, 200);
+    memset(&shp_info, 0, sizeof(shp_info));
+    shp_pub_fd = orb_advertise(ORB_ID(shp_output), &shp_info);
+}
 
-    /* advertise attitude topic */
-    struct vehicle_attitude_s att;
-    memset(&att, 0, sizeof(att));
-    orb_advert_t att_pub = orb_advertise(ORB_ID(vehicle_attitude), &att);
+void xkf::begin()
+{
+    should_exit();
+    PX4_INFO("Hello from xkf object");
 
-    /* one could wait for multiple topics with this technique, just using one here */
+    float q[4] = {0};
+    float roll = 0;
+    float pitch = 0;
+    float yaw = 0;
+
     px4_pollfd_struct_t fds[] = {
-        { .fd = sensor_sub_fd,   .events = POLLIN },
-        /* there could be more file descriptors here, in the form like:
-         * { .fd = other_sub_fd,   .events = POLLIN },
-         */
-    };
+		{ .fd = attitude_fd,   .events = POLLIN }, {.fd = local_position_fd, .events = POLLIN}
+	};
+     int error_counter = 0;
 
-    int error_counter = 0;
-
-    for (int i = 0; i < 5; i++) {
+        //for(int i = 0; i < 100; i++) {  
+        while(!should_exit()){
         /* wait for sensor update of 1 file descriptor for 1000 ms (1 second) */
         int poll_ret = px4_poll(fds, 1, 1000);
 
@@ -99,22 +92,28 @@ int px4_simple_app_main(int argc, char *argv[])
 
             if (fds[0].revents & POLLIN) {
                 /* obtained data for the first file descriptor */
-                struct sensor_combined_s raw;
                 /* copy sensors raw data into local buffer */
-                orb_copy(ORB_ID(sensor_combined), sensor_sub_fd, &raw);
-                PX4_INFO("Accelerometer:\t%8.4f\t%8.4f\t%8.4f",
-                     (double)raw.accelerometer_m_s2[0],
-                     (double)raw.accelerometer_m_s2[1],
-                     (double)raw.accelerometer_m_s2[2]);
+                orb_copy(ORB_ID(vehicle_local_position), local_position_fd, &pos);
+                orb_copy(ORB_ID(vehicle_attitude), attitude_fd, &att);
 
-                /* set att and publish this information for other apps
-                 the following does not have any meaning, it's just an example
-                */
-                att.q[0] = raw.accelerometer_m_s2[0];
-                att.q[1] = raw.accelerometer_m_s2[1];
-                att.q[2] = raw.accelerometer_m_s2[2];
+                q[0] = att.q[0]; q[1] = att.q[1]; q[2] = att.q[2]; q[3] = att.q[3];
 
-                orb_publish(ORB_ID(vehicle_attitude), att_pub, &att);
+                yaw         = atan2(2.0f * (q[0] * q[3] + q[1] * q[2]), 1 - 2*(q[2] * q[2] + q[3] * q[3]));
+                pitch       = asin(2*(q[0]*q[2] - q[3]*q[1]));
+                roll        = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), 1 - 2*(q[1] * q[1] + q[2] * q[2]));
+                
+
+                shp_info.timestamp = hrt_absolute_time();
+                shp_info.x = 1;
+                shp_info.y = 2;
+                shp_info.z = 3;
+
+                shp_info.yaw = yaw;
+                shp_info.pitch = pitch;
+                shp_info.roll = roll;
+
+                orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_info);
+                //PX4_INFO("I am alive");
             }
 
             /* there could be more file descriptors here, in the form like:
@@ -123,7 +122,47 @@ int px4_simple_app_main(int argc, char *argv[])
         }
     }
 
-    PX4_INFO("exiting");
+   // int i = 0;
+    /*
+    while(i < 10e6)
+    {
 
+
+        orb_copy(ORB_ID(vehicle_local_position), local_position_fd, &pos);
+        orb_copy(ORB_ID(vehicle_attitude), attitude_fd, &att);
+
+        q[0] = att.q[0]; q[1] = att.q[1]; q[2] = att.q[2]; q[3] = att.q[3];
+
+        yaw         = atan2(2.0f * (q[0] * q[3] + q[1] * q[2]), 1 - 2*(q[2] * q[2] + q[3] * q[3]));
+        pitch       = asin(2*(q[0]*q[2] - q[3]*q[1]));
+        roll        = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), 1 - 2*(q[1] * q[1] + q[2] * q[2]));
+        
+        roll = roll;
+        pitch = pitch;
+        yaw = yaw;
+
+
+        shp_info.timestamp = hrt_absolute_time();
+        shp_info.x = 1;
+        shp_info.y = 2;
+        shp_info.z = 3;
+
+        shp_info.yaw = yaw;
+        shp_info.pitch = pitch;
+        shp_info.roll = roll;
+
+        orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_info);
+
+        i++;
+    }
+    */
+}
+
+int xkf_main(int argc, char *argv[])
+{
+    PX4_INFO("Hello Sky!");
+
+   // !should_exit();
+    
     return 0;
 }

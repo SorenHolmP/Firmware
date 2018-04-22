@@ -55,6 +55,7 @@ Takeoff::on_activation()
 void
 Takeoff::on_active()
 {
+    //PX4_INFO("Hello from takeoff.cpp");
 	struct position_setpoint_triplet_s *rep = _navigator->get_takeoff_triplet();
 
 	if (rep->current.valid) {

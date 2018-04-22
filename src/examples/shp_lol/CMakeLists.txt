@@ -31,11 +31,12 @@
 #
 ############################################################################
 px4_add_module(
-    MODULE examples__px4_simple_app
-    MAIN px4_simple_app
+    MODULE examples__shp_lol
+    MAIN shp_lol
     STACK_MAIN 2000
     SRCS
-        px4_simple_app.c
+        shp_lol.cpp
     DEPENDS
         platforms__common
     )
+
