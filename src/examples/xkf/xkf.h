@@ -1,6 +1,7 @@
 #include <px4_module.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_attitude.h>
+#include <uORB/topics/sensor_combined.h>
 #include <uORB/topics/shp_output.h>
 
 #include <px4_log.h>
@@ -27,10 +28,12 @@ class xkf  : public ModuleBase<xkf>
     
     int local_position_fd;
     int attitude_fd;
+    int sensor_fd;
 
     struct vehicle_local_position_s pos;
     struct vehicle_attitude_s att;
     struct shp_output_s shp_info;
+    struct sensor_combined_s sens;
 
     orb_advert_t shp_pub_fd; 
 

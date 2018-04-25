@@ -169,6 +169,8 @@ set(config_module_list
 	
 	examples/shp_lol
 
+	modules/shp_module
+
 	#
 	# Demo apps
 	#

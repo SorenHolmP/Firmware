@@ -40,6 +40,13 @@
 
 
 #include "xkf.h"
+#include <fstream>
+#include <iostream>
+#include <unistd.h>
+
+
+#include <chrono>
+#include <thread>
 
 extern "C" __EXPORT int xkf_main(int argc, char *argv[]); //Et eller andet med C vs cpp filer
 
@@ -47,8 +54,10 @@ xkf::xkf()
 {
     local_position_fd = orb_subscribe(ORB_ID(vehicle_local_position));
     attitude_fd = orb_subscribe(ORB_ID(vehicle_attitude));
-    //orb_set_interval(local_position_fd,200); //update rate 1ms
-    //orb_set_interval(attitude_fd, 200);
+    sensor_fd = orb_subscribe(ORB_ID(sensor_combined));
+    orb_set_interval(local_position_fd,200); //update rate 1ms
+    orb_set_interval(attitude_fd, 200);
+    orb_set_interval(sensor_fd,500);
 
     memset(&shp_info, 0, sizeof(shp_info));
     shp_pub_fd = orb_advertise(ORB_ID(shp_output), &shp_info);
@@ -56,78 +65,80 @@ xkf::xkf()
 
 void xkf::begin()
 {
-    should_exit();
-    PX4_INFO("Hello from xkf object");
-
     float q[4] = {0};
     float roll = 0;
     float pitch = 0;
     float yaw = 0;
+    std::ofstream myfile;
+    myfile.open("data.txt");
+    // px4_pollfd_struct_t fds[] = {
+	// 	{.fd = sensor_fd, .events = POLLIN}//, { .fd = attitude_fd,   .events = POLLIN }, {.fd = local_position_fd, .events = POLLIN}
+	// };
+    
+    //  int error_counter = 0;
+    //     for(int i = 0; i < 10; i++) {  
+    //     //while(!should_exit()){
+    //     /* wait for sensor update of 1 file descriptor for 1000 ms (1 second) */
+    //     int poll_ret = px4_poll(fds, 1, 1000);
 
-    px4_pollfd_struct_t fds[] = {
-		{ .fd = attitude_fd,   .events = POLLIN }, {.fd = local_position_fd, .events = POLLIN}
-	};
-     int error_counter = 0;
+    //     /* handle the poll result */
+    //     if (poll_ret == 0) {
+    //         /* this means none of our providers is giving us data */
+    //         PX4_ERR("Got no data within a second");
 
-        //for(int i = 0; i < 100; i++) {  
-        while(!should_exit()){
-        /* wait for sensor update of 1 file descriptor for 1000 ms (1 second) */
-        int poll_ret = px4_poll(fds, 1, 1000);
+    //     } else if (poll_ret < 0) {
+    //         /* this is seriously bad - should be an emergency */
+    //         if (error_counter < 10 || error_counter % 50 == 0) {
+    //             /* use a counter to prevent flooding (and slowing us down) */
+    //             PX4_ERR("ERROR return value from poll(): %d", poll_ret);
+    //         }
 
-        /* handle the poll result */
-        if (poll_ret == 0) {
-            /* this means none of our providers is giving us data */
-            PX4_ERR("Got no data within a second");
+    //         error_counter++;
 
-        } else if (poll_ret < 0) {
-            /* this is seriously bad - should be an emergency */
-            if (error_counter < 10 || error_counter % 50 == 0) {
-                /* use a counter to prevent flooding (and slowing us down) */
-                PX4_ERR("ERROR return value from poll(): %d", poll_ret);
-            }
+    //     } else {
 
-            error_counter++;
+    //         if (fds[0].revents & POLLIN) {
+    //             /* obtained data for the first file descriptor */
+    //             /* copy sensors raw data into local buffer */
+    //             orb_copy(ORB_ID(vehicle_local_position), local_position_fd, &pos);
+    //             orb_copy(ORB_ID(vehicle_attitude), attitude_fd, &att);
 
-        } else {
+    //             q[0] = att.q[0]; q[1] = att.q[1]; q[2] = att.q[2]; q[3] = att.q[3];
 
-            if (fds[0].revents & POLLIN) {
-                /* obtained data for the first file descriptor */
-                /* copy sensors raw data into local buffer */
-                orb_copy(ORB_ID(vehicle_local_position), local_position_fd, &pos);
-                orb_copy(ORB_ID(vehicle_attitude), attitude_fd, &att);
-
-                q[0] = att.q[0]; q[1] = att.q[1]; q[2] = att.q[2]; q[3] = att.q[3];
-
-                yaw         = atan2(2.0f * (q[0] * q[3] + q[1] * q[2]), 1 - 2*(q[2] * q[2] + q[3] * q[3]));
-                pitch       = asin(2*(q[0]*q[2] - q[3]*q[1]));
-                roll        = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), 1 - 2*(q[1] * q[1] + q[2] * q[2]));
+    //             yaw         = atan2(2.0f * (q[0] * q[3] + q[1] * q[2]), 1 - 2*(q[2] * q[2] + q[3] * q[3]));
+    //             pitch       = asin(2*(q[0]*q[2] - q[3]*q[1]));
+    //             roll        = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), 1 - 2*(q[1] * q[1] + q[2] * q[2]));
                 
 
-                shp_info.timestamp = hrt_absolute_time();
-                shp_info.x = 1;
-                shp_info.y = 2;
-                shp_info.z = 3;
+    //             shp_info.timestamp = hrt_absolute_time();
+    //             shp_info.x = 1;
+    //             shp_info.y = 2;
+    //             shp_info.z = 3;
 
-                shp_info.yaw = yaw;
-                shp_info.pitch = pitch;
-                shp_info.roll = roll;
+    //             shp_info.yaw = yaw;
+    //             shp_info.pitch = pitch;
+    //             shp_info.roll = roll;
 
-                orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_info);
-                //PX4_INFO("I am alive");
-            }
+    //             orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_info);
+    //             PX4_INFO("I am alive");
+    //             myfile << hrt_absolute_time() << " " << yaw << " " << pitch << " " << " " << roll << std::endl;
+    //         }
 
-            /* there could be more file descriptors here, in the form like:
-             * if (fds[1..n].revents & POLLIN) {}
-             */
-        }
-    }
+    //         /* there could be more file descriptors here, in the form like:
+    //          * if (fds[1..n].revents & POLLIN) {}
+    //          */
+    //     }
+    // }
 
-   // int i = 0;
-    /*
-    while(i < 10e6)
+
+
+   // myfile << "Hello dad";
+
+
+ 
+    
+    for(int i = 0; i < 2; i++)
     {
-
-
         orb_copy(ORB_ID(vehicle_local_position), local_position_fd, &pos);
         orb_copy(ORB_ID(vehicle_attitude), attitude_fd, &att);
 
@@ -150,19 +161,34 @@ void xkf::begin()
         shp_info.yaw = yaw;
         shp_info.pitch = pitch;
         shp_info.roll = roll;
+        myfile << shp_info.timestamp << std::endl;
 
-        orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_info);
+        //orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_info);
 
-        i++;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+
+        myfile << hrt_absolute_time() << " " << yaw << " " << pitch << " " << " " << roll << std::endl;
+
+        PX4_INFO("I am alive from regular loop");
     }
-    */
-}
+    
+ }
 
 int xkf_main(int argc, char *argv[])
 {
-    PX4_INFO("Hello Sky!");
+    if(!strcmp(argv[1], "start"))
+    {
+        PX4_INFO("Hello Sky!");
+        xkf xkf_obj;
+        xkf_obj.begin();
+    }
+//    int task_id =  px4_task_spawn_cmd("xkf",
+//                         SCHED_DEFAULT,
+//                         SCHED_PRIORITY_DEFAULT,
+//                         1024,
+//                         (px4_main_t)&run_trampoline,
+//                         (char *const *)argv);
 
-   // !should_exit();
-    
+
     return 0;
 }

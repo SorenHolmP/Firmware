@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012-2016 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2018 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,42 +31,52 @@
  *
  ****************************************************************************/
 
-/**
- * @file px4_simple_app.c
- * Minimal application example for PX4 autopilot
- *
- * @author Example User <mail@example.com>
- */
+#pragma once
 
-#include <px4_log.h>
-#include "../xkf/xkf.h"
+#include <px4_module.h>
+#include <px4_module_params.h>
+
+extern "C" __EXPORT int shp_module_main(int argc, char *argv[]);
 
 
-#include <chrono>
-#include <thread>
-#include <uORB/uORB.h>
-#include <uORB/topics/actuator_outputs.h>
-
-extern "C" __EXPORT int shp_lol_main(int argc, char *argv[]); //Et eller andet med C vs cpp filer
-
-
-int shp_lol_main(int argc, char *argv[])
+class shp_module : public ModuleBase<shp_module>, public ModuleParams
 {
-    //xkf my_xkf;
+public:
+	shp_module(int example_param, bool example_flag);
 
-    //my_xkf.begin();
+	virtual ~shp_module() = default;
 
-    int actuator_outputs_fd = orb_subscribe(ORB_ID(actuator_outputs));
+	/** @see ModuleBase */
+	static int task_spawn(int argc, char *argv[]);
 
-    struct actuator_outputs_s actuator_data;
+	/** @see ModuleBase */
+	static shp_module *instantiate(int argc, char *argv[]);
 
-    orb_copy(ORB_ID(actuator_outputs),actuator_outputs_fd, &actuator_data);
+	/** @see ModuleBase */
+	static int custom_command(int argc, char *argv[]);
 
-    
-    for(int i = 0; i < 16; i++)
-    {
-        PX4_INFO("%Output %8.4f",(double)actuator_data.output[i]);
-    }
+	/** @see ModuleBase */
+	static int print_usage(const char *reason = nullptr);
 
-    return 0;
-}
+	/** @see ModuleBase::run() */
+	void run() override;
+
+	/** @see ModuleBase::print_status() */
+	int print_status() override;
+
+private:
+
+	/**
+	 * Check for parameter changes and update them if needed.
+	 * @param parameter_update_sub uorb subscription to parameter_update
+	 * @param force for a parameter update
+	 */
+	void parameters_update(int parameter_update_sub, bool force = false);
+
+
+	DEFINE_PARAMETERS(
+		(ParamInt<px4::params::SYS_AUTOSTART>) _sys_autostart,   /**< example parameter */
+		(ParamInt<px4::params::SYS_AUTOCONFIG>) _sys_autoconfig  /**< another parameter */
+	)
+};
+
