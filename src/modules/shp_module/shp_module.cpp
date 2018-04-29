@@ -173,6 +173,8 @@ shp_module::shp_module(int example_param, bool example_flag)
 {
 }
 
+	bool flying = false;
+
 void shp_module::run()
 {
 	//Setup vectors and matrices:
@@ -205,25 +207,26 @@ void shp_module::run()
 	PThau = Gain * PThau;
 
 	//Physical properties:
-	float b = 3e-6; 	//motor constant
-	float d = 1e-7;	  	//drag factor
+	float b = 1.5e-6; 	//motor constant
+	float d = 1e-14;	  	//drag factor
 	float l = 0.26; 	//arm length
 	double Ix = 0.0347563; //From sdf file
 	double Iy = 0.0458929; 
 	double Iz = 0.0977;
-	double g = 9.82;
+	double g = 9.8066; //From iris.world file
 	double m = 1.5; //From sdf file
 
 	//float roll_old, pitch_old, yaw_old;
 	//Init variables:
 	bool updated = false;
-	bool flying = false;
+
 	double dt = 0;
 	double taux = 0, tauy = 0, tauz = 0, ft = 0;
 
 	//dt variables:
 	double timestamp = 0;
 	double timestamp_old = 0;
+	double time_flying = 0;
 
 	// Example: run the loop synchronized to the sensor_combined topic publication
 	int sensor_combined_sub = orb_subscribe(ORB_ID(sensor_combined));
@@ -259,6 +262,8 @@ void shp_module::run()
     orb_advert_t shp_pub_fd = orb_advertise(ORB_ID(shp_output), &shp_out);
 
 	std::ofstream myfile;
+	std::ofstream actfile;
+	actfile.open("actoutput.txt");
     myfile.open("data_shp.txt");
 	myfile << "roll " << "pitch " << "yaw " <<  "x " << "y " << "z " << "taux" << " " << "tauy" << " " << "tauz " << "ft" << std::endl;
 
@@ -281,6 +286,7 @@ void shp_module::run()
 			if(updated)
 			{	
 				flying = true;
+				time_flying = hrt_absolute_time() / 1e6;
 				//PX4_INFO("I am updated");
 				// for(int i = 0; i < 6; i++)
 				// {
@@ -304,31 +310,31 @@ void shp_module::run()
 
 				//PX4_INFO("ft: %f \t taux: %f \t tauy: %f \t tauz: %f",ft, taux, tauy, tauz);
 
-				// xhatdot(0) = xhat(3)+xhat(5)*xhat(1)+xhat(4)*xhat(0)*xhat(1);
-				// xhatdot(1) = xhat(4)-xhat(5)*xhat(0);
-				// xhatdot(2) = xhat(5)+xhat(4)*xhat(0);
-				// xhatdot(3) = ((Iy-Iz)/Ix)*xhat(5)*xhat(4)+taux/Ix;
-				// xhatdot(4) = ((Iz-Ix)/Iy)*xhat(3)*xhat(5)+tauy/Iy;
-				// xhatdot(5) = ((Ix-Iy)/Iz)*xhat(3)*xhat(4)+tauz/Iz;
-				// xhatdot(6) = xhat(5)*xhat(7)-xhat(6)*xhat(10)-g*xhat(1);
-				// xhatdot(7) = xhat(3)*xhat(8)-xhat(5)*xhat(6)+g*xhat(0);
-				// xhatdot(8) = xhat(4)*xhat(6)-xhat(3)*xhat(7)+ g - (ft/m);
-				// xhatdot(9) = xhat(8)*(xhat(0)*xhat(2)+xhat(1))-xhat(7)*(xhat(2)-xhat(0)*xhat(1))+xhat(6);
-				// xhatdot(10) = xhat(7)*(1+xhat(0)*xhat(1)*xhat(2))-xhat(8)*(xhat(0)-xhat(1)*xhat(2))+xhat(6)*xhat(2);
-				// xhatdot(11) = xhat(8)-xhat(6)*xhat(1)+xhat(7)*xhat(0);
+				xhatdot(0) = xhat(3)+xhat(5)*xhat(1)+xhat(4)*xhat(0)*xhat(1);
+				xhatdot(1) = xhat(4)-xhat(5)*xhat(0);
+				xhatdot(2) = xhat(5)+xhat(4)*xhat(0);
+				xhatdot(3) = ((Iy-Iz)/Ix)*xhat(5)*xhat(4)+taux/Ix;
+				xhatdot(4) = ((Iz-Ix)/Iy)*xhat(3)*xhat(5)+tauy/Iy;
+				xhatdot(5) = ((Ix-Iy)/Iz)*xhat(3)*xhat(4)+tauz/Iz;
+				xhatdot(6) = xhat(5)*xhat(7)-xhat(6)*xhat(10)-g*xhat(1);
+				xhatdot(7) = xhat(3)*xhat(8)-xhat(5)*xhat(6)+g*xhat(0);
+				xhatdot(8) = xhat(4)*xhat(6)-xhat(3)*xhat(7)+ g - (ft/m);
+				xhatdot(9) = xhat(8)*(xhat(0)*xhat(2)+xhat(1))-xhat(7)*(xhat(2)-xhat(0)*xhat(1))+xhat(6);
+				xhatdot(10) = xhat(7)*(1+xhat(0)*xhat(1)*xhat(2))-xhat(8)*(xhat(0)-xhat(1)*xhat(2))+xhat(6)*xhat(2);
+				xhatdot(11) = xhat(8)-xhat(6)*xhat(1)+xhat(7)*xhat(0);
 
-				xhatdot(0) = 0;
-				xhatdot(1) = 0;
-				xhatdot(2) = 0;
-				xhatdot(3) = 0;
-				xhatdot(4) = 0;
-				xhatdot(5) = 0;
-				xhatdot(6) = 0;
-				xhatdot(7) = 0;
-				xhatdot(8) = 0;
-				xhatdot(9) = 0;
-				xhatdot(10) = 0;
-				xhatdot(11) = 0;
+				// xhatdot(0) = 0;
+				// xhatdot(1) = 0;
+				// xhatdot(2) = 0;
+				// xhatdot(3) = 0;
+				// xhatdot(4) = 0;
+				// xhatdot(5) = 0;
+				// xhatdot(6) = 0;
+				// xhatdot(7) = 0;
+				// xhatdot(8) = 0;
+				// xhatdot(9) = 0;
+				// xhatdot(10) = 0;
+				// xhatdot(11) = 0;
 
 				float q[4] = {0};
 				q[0] = att.q[0]; q[1] = att.q[1]; q[2] = att.q[2]; q[3] = att.q[3];
@@ -336,8 +342,7 @@ void shp_module::run()
 				float roll = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), 1 - 2*(q[1] * q[1] + q[2] * q[2])); //roll quaternion conversion
 				float pitch = asin(2*(q[0]*q[2] - q[3]*q[1]));												 //pitch
 				float yaw = atan2(2.0f * (q[0] * q[3] + q[1] * q[2]), 1 - 2*(q[2] * q[2] + q[3] * q[3])); //yaw
-				
-				
+							
 				y(0) = roll;
 				y(1) = pitch;
 				y(2) = yaw;
@@ -346,7 +351,7 @@ void shp_module::run()
 				y(5) = att.yawspeed * cos(pitch) * cos(roll) - att.pitchspeed * sin(roll);	//r
 				y(6) = pos.x;
 				y(7) = pos.y;
-				y(8) = pos.z;
+				y(8) = -pos.z; //Should it be minus here?
 				yhat(0) = xhat(0);
 				yhat(1) = xhat(1);
 				yhat(2) = xhat(2);
@@ -359,14 +364,19 @@ void shp_module::run()
 				
 				timestamp = hrt_absolute_time();
 				//dt = (timestamp - timestamp_old) / 1e6;
-				dt = 0.001;
+				dt = 0.0005;
 
-				
 				xhatdot = xhatdot + PThau * (y-yhat);
 				xhat = xhat + xhatdot * dt; 
 				//std::cout << "dt: " <<  dt << std::endl;
-				myfile << xhat(0) << " " << xhat(1)<<  " " << xhat(2)<< " " << xhat(9) <<" " << xhat(10) <<" " << xhat(11) << " " << taux << " " << tauy << " " << tauz << " " << ft << std::endl;
-				std::cout << xhat << std::endl;
+				//std::cout << xhatdot << std::endl;
+				//std::cout << act.output[0] << "   " << act.output[1] << "    " << act.output[2] << "    " << act.output[3] << std::endl; 
+				myfile << time_flying << " " << xhat(0) << " " << xhat(1)<<  " " << xhat(2)<< " " << xhat(9) <<" " << xhat(10) <<" " << xhat(11) << std::endl;// << " " << taux << " " << tauy << " " << tauz << " " << ft << std::endl;
+				//std::cout << xhat << std::endl;
+				//std::cout << y;
+				time_flying += dt;
+				actfile << time_flying << " " << act.output[0] << " " << act.output[1] << " " << act.output[2] << " " << act.output[3] << std::endl; 
+				
 				timestamp_old = timestamp;
 
 				shp_out.timestamp = timestamp;
@@ -376,6 +386,9 @@ void shp_module::run()
 				shp_out.x = xhat(9);
 				shp_out.y = xhat(10);
 				shp_out.z = xhat(11);
+				shp_out.roll_ground_truth = roll;
+				shp_out.pitch_ground_truth = pitch;
+				shp_out.yaw_ground_truth = yaw;
 
 				orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_out);
 
@@ -457,6 +470,15 @@ int shp_module_main(int argc, char *argv[])
 			float yaw_vel    = (yaw - yaw_old) / dt;*/
 				//roll_old = roll; pitch_old = pitch; yaw_old = yaw; //Update angles for next calculation of angular velocities
 
+
+	Eigen::VectorXd vec(3);
+	vec(0) = 0;
+	vec(1) = 1;
+	vec(2) = 2;
+
+	Eigen::VectorXd n_vec(3);
+	n_vec = 2 * vec;
+	std::cout << n_vec;
 
 	return shp_module::main(argc, argv);
 }
