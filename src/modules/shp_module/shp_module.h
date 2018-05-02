@@ -73,10 +73,9 @@ private:
 	 */
 	void parameters_update(int parameter_update_sub, bool force = false);
 
-
 	DEFINE_PARAMETERS(
 		(ParamInt<px4::params::SYS_AUTOSTART>) _sys_autostart,   /**< example parameter */
 		(ParamInt<px4::params::SYS_AUTOCONFIG>) _sys_autoconfig  /**< another parameter */
-	)
+)
 };
 

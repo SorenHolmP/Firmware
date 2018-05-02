@@ -127,7 +127,8 @@ set(msg_files
 	vtol_vehicle_status.msg
 	wind_estimate.msg
 	shp_output.msg
-	exogenous_kf.msg
+	xkf_output.msg
+	xkf_residual_output.msg
 	)
 
 if(NOT EXTERNAL_MODULES_LOCATION STREQUAL "")

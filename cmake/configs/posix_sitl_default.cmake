@@ -171,6 +171,8 @@ set(config_module_list
 
 	modules/shp_module
 
+	#modules/shp_module2
+
 	#
 	# Demo apps
 	#
