@@ -129,6 +129,7 @@ set(msg_files
 	shp_output.msg
 	xkf_output.msg
 	xkf_residual_output.msg
+	NLO_output.msg
 	)
 
 if(NOT EXTERNAL_MODULES_LOCATION STREQUAL "")

@@ -42,9 +42,11 @@
 #include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_attitude.h>
+
 #include <uORB/topics/xkf_output.h>
 #include <uORB/topics/shp_output.h>
 #include <uORB/topics/xkf_residual_output.h>
+#include <uORB/topics/NLO_output.h>
 
 #include <math.h>
 #include <iostream>
@@ -181,7 +183,7 @@ shp_module::shp_module(int example_param, bool example_flag)
 void shp_module::run()
 {
 	//Physical properties:
-	float b = 1.5e-6; 		//motor constant
+	float b = 1.5e-06;		//motor constant
 	float d = 1e-14;	  	//drag factor
 	float l = 0.26; 		//arm length
 	double Ix = 0.0347563; 	//From sdf file
@@ -207,7 +209,6 @@ void shp_module::run()
 	Eigen::MatrixXd F(12,12); F.setZero(); //Linear model:
 	F(0,3) = 1; F(1,4) = 1; F(2,5) = 1; F(6,1) = -g; F(7,0) = g; F(9,6) = 1; F(10,7) = 1; F(11,8) = 1;
 
-
 	//Adding sensor noise to ground truth outputs:
 	unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count(); 	
 	std::default_random_engine generator(seed1);
@@ -228,8 +229,12 @@ void shp_module::run()
 	//Setup vectors and matrices:
 	Eigen::VectorXd y(9); y.setZero(); 			//Initialize output vector. Containing simulation states
 	Eigen::VectorXd yhat(9); y.setZero();		//output from state estimator
+	Eigen::VectorXd z(9); z.setZero(); 			//Output from thau observer
 	Eigen::VectorXd xhat(12); xhat.setZero();
 	Eigen::VectorXd xhatdot(12); xhatdot.setZero();
+	Eigen::VectorXd Qxdot(12); Qxdot.setZero();
+	Eigen::VectorXd Qx(12); Qx.setZero();
+
 
 	Eigen::MatrixXd PThau(12,9); PThau.setZero();	//Non linear observer gain
 	PThau(0,0) = 1.5;	PThau(0,3) = 0.5;	PThau(1,1) = 1.5;
@@ -237,7 +242,7 @@ void shp_module::run()
 	PThau(3,3) = 0.5;	PThau(4,1) = 0.5;	PThau(4,4) = 0.5;	PThau(5,2) = 0.5; 
 	PThau (5,5) = 0.5;	PThau(6,6) = 1.0;	PThau(7,7) = 1.0;	PThau(8,8) = 1.0;
 	PThau(9,6) = 2.0;	PThau(10,7) = 2.0;	PThau(11,8) = 2.0;	PThau(2,5) = 0.5;
-	double Gain = 100.0; //Sketchy
+	double Gain = 20.0; //Sketchy
 	PThau = Gain * PThau;
 
 	// Example: run the loop synchronized to the sensor_combined topic publication
@@ -271,6 +276,7 @@ void shp_module::run()
 	struct shp_output_s shp_out;
 	struct xkf_output_s xkf_out;
 	struct xkf_residual_output_s res_out;
+	struct NLO_output_s nlo_out;
 
 	memset(&xkf_out, 0, sizeof(xkf_out));
     orb_advert_t xkf_pub_fd = orb_advertise(ORB_ID(xkf_output), &xkf_out);
@@ -278,6 +284,8 @@ void shp_module::run()
     orb_advert_t shp_pub_fd = orb_advertise(ORB_ID(shp_output), &shp_out);
 	memset(&res_out, 0, sizeof(res_out));
     orb_advert_t res_pub_fd = orb_advertise(ORB_ID(xkf_residual_output), &res_out);
+	memset(&nlo_out, 0, sizeof(nlo_out));
+    orb_advert_t nlo_pub_fd = orb_advertise(ORB_ID(NLO_output), &nlo_out);
 
 
 	std::ofstream myfile;
@@ -304,6 +312,9 @@ void shp_module::run()
 			orb_check(actuator_outputs_fd, &updated);
 			if(updated)
 			{	
+				if(!flying)
+					timestamp_old = hrt_absolute_time();
+
 				flying = true;
 				time_flying = hrt_absolute_time() / 1e6;
 				//PX4_INFO("I am updated");
@@ -328,25 +339,6 @@ void shp_module::run()
 				tauz = d * (act.output[0]*act.output[0] + act.output[1]*act.output[1] - act.output[2]*act.output[2] - act.output[3]*act.output[3]);
 
 				//PX4_INFO("ft: %f \t taux: %f \t tauy: %f \t tauz: %f",ft, taux, tauy, tauz);
- 
-				
-
-				xhatdot(0) = xhat(3)+xhat(5)*xhat(1)+xhat(4)*xhat(0)*xhat(1);
-				xhatdot(1) = xhat(4)-xhat(5)*xhat(0);
-				xhatdot(2) = xhat(5)+xhat(4)*xhat(0);
-				xhatdot(3) = ((Iy-Iz)/Ix)*xhat(5)*xhat(4)+taux/Ix;
-				xhatdot(4) = ((Iz-Ix)/Iy)*xhat(3)*xhat(5)+tauy/Iy;
-				xhatdot(5) = ((Ix-Iy)/Iz)*xhat(3)*xhat(4)+tauz/Iz;
-				xhatdot(6) = xhat(5)*xhat(7)-xhat(6)*xhat(10)-g*xhat(1);
-				xhatdot(7) = xhat(3)*xhat(8)-xhat(5)*xhat(6)+g*xhat(0);
-				xhatdot(8) = xhat(4)*xhat(6)-xhat(3)*xhat(7)+ g - (ft/m);
-				xhatdot(9) = xhat(8)*(xhat(0)*xhat(2)+xhat(1))-xhat(7)*(xhat(2)-xhat(0)*xhat(1))+xhat(6);
-				xhatdot(10) = xhat(7)*(1+xhat(0)*xhat(1)*xhat(2))-xhat(8)*(xhat(0)-xhat(1)*xhat(2))+xhat(6)*xhat(2);
-				xhatdot(11) = xhat(8)-xhat(6)*xhat(1)+xhat(7)*xhat(0);
-
-				//Messing up model still works: ???
-				// xhatdot(0) = 0;  xhatdot(1) = 0; xhatdot(2) = 0;  xhatdot(3) = 0; xhatdot(4) = 0; xhatdot(5) = 0; xhatdot(6) = 0;	
-				// xhatdot(7) = 0; xhatdot(8) = 0; xhatdot(9) = 0;xhatdot(10) = 0; xhatdot(11) = 0;
 
 				float q[4] = {0};
 				q[0] = att.q[0]; q[1] = att.q[1]; q[2] = att.q[2]; q[3] = att.q[3];
@@ -364,14 +356,51 @@ void shp_module::run()
 				y(0) = roll;
 				y(1) = pitch;
 				y(2) = yaw;
-				y(3) = att.rollspeed; - att.yawspeed * sin(pitch); 							//p, formula from p.12 Thomas S. Alderete.
-				y(4) = att.pitchspeed * cos(roll) + att.yawspeed * cos(pitch) * sin(roll);	//Maybe change to just: att.roll-/pitch-/yawspeed
-				y(5) = att.yawspeed * cos(pitch) * cos(roll) - att.pitchspeed * sin(roll);	//Because small angle approx, gives T = I_3x3
+				y(3) = att.rollspeed;//; - att.yawspeed * sin(pitch); 							//p, formula from p.12 Thomas S. Alderete.
+				y(4) = att.pitchspeed;// * cos(roll) + att.yawspeed * cos(pitch) * sin(roll);	//Maybe change to just: att.roll-/pitch-/yawspeed
+				y(5) = att.yawspeed;// * cos(pitch) * cos(roll) - att.pitchspeed * sin(roll);	//Because small angle approx, gives T = I_3x3
 				y(6) = pos.x;
 				y(7) = pos.y;
-				y(8) = -pos.z; //Should it be minus here?
+				y(8) = -pos.z;// + distribution(generator); //Should it be minus here?	
 				
-				yhat = C * xhat;
+				timestamp = hrt_absolute_time();
+				dt = (timestamp - timestamp_old) / 1e6; //dt = 0.0005;
+				//dt = 0.0005;
+				timestamp_old = timestamp;	
+	
+				Qxdot(0) = Qx(3)+Qx(5)*Qx(1)+Qx(4)*Qx(0)*Qx(1);
+				Qxdot(1) = Qx(4)-Qx(5)*Qx(0);
+				Qxdot(2) = Qx(5)+Qx(4)*Qx(0);
+				Qxdot(3) = ((Iy-Iz)/Ix)*Qx(5)*Qx(4)+taux/Ix;
+				Qxdot(4) = ((Iz-Ix)/Iy)*Qx(3)*Qx(5)+tauy/Iy;
+				Qxdot(5) = ((Ix-Iy)/Iz)*Qx(3)*Qx(4)+tauz/Iz;
+				Qxdot(6) = Qx(5)*Qx(7)-Qx(6)*Qx(10)-g*Qx(1);
+				Qxdot(7) = Qx(3)*Qx(8)-Qx(5)*Qx(6)+g*Qx(0);
+				Qxdot(8) = Qx(4)*Qx(6)-Qx(3)*Qx(7)+ g - (ft/m);
+				Qxdot(9) = Qx(8)*(Qx(0)*Qx(2)+Qx(1))-Qx(7)*(Qx(2)-Qx(0)*Qx(1))+Qx(6);
+				Qxdot(10) = Qx(7)*(1+Qx(0)*Qx(1)*Qx(2))-Qx(8)*(Qx(0)-Qx(1)*Qx(2))+Qx(6)*Qx(2);
+				Qxdot(11) = Qx(8)-Qx(6)*Qx(1)+Qx(7)*Qx(0);
+
+				Qxdot = Qxdot + PThau*(y-C*Qx);
+				Qx = Qx + Qxdot * dt;
+
+				xhatdot(0) = Qx(3); //change all the way
+				xhatdot(1) = Qx(4);
+				xhatdot(2) = Qx(5);
+				xhatdot(3) = taux/Ix;
+				xhatdot(4) = tauy/Iy;
+				xhatdot(5) = tauz/Iz;
+				xhatdot(6) = -g*Qx(1);
+				xhatdot(7) = g*Qx(0);
+				xhatdot(8) = -(ft/m);
+				xhatdot(9) = Qx(6);
+				xhatdot(10) = Qx(7);
+				xhatdot(11) = Qx(8);
+
+				//Messing up model still works: ???
+				// xhatdot(0) = 0;  xhatdot(1) = 0; xhatdot(2) = 0;  xhatdot(3) = 0; xhatdot(4) = 0; xhatdot(5) = 0; xhatdot(6) = 0;	
+				// xhatdot(7) = 0; xhatdot(8) = 0; xhatdot(9) = 0;xhatdot(10) = 0; xhatdot(11) = 0;
+
 				// yhat(0) = xhat(0);
 				// yhat(1) = xhat(1);
 				// yhat(2) = xhat(2);
@@ -381,32 +410,40 @@ void shp_module::run()
 				// yhat(6) = xhat(9);
 				// yhat(7) = xhat(10);
 				// yhat(8) = xhat(11);		
-				
-				timestamp = hrt_absolute_time();
-				dt = 0.0005;//dt = (timestamp - timestamp_old) / 1e6;
-				timestamp_old = timestamp;
+				yhat = C * xhat;
 
-				xhatdot = xhatdot + PThau * (y-yhat); //Pure nonlinear observer
-				xhat = xhat + xhatdot * dt; 
+				//xhatdot = xhatdot + PThau * (y-yhat); //Pure nonlinear observer
+				//xhat = xhat + xhatdot * dt; 
+				z = C * Qx;
 
 				//Kalman filter from Agus:
 				K = P * C.transpose() * R.inverse();
-				//xhatdot = xhatdot + K * (z - H * xhat);
+				xhatdot = xhatdot + K * (z - H * xhat);	
+				xhat = xhat + xhatdot * dt;
 				Pdot = F * P + P * F.transpose() + Q - P * H.transpose() * R.inverse() * H * P;
 				P = P + Pdot * dt;
 
 				//Publish collected data:
 				//Custom output shp, for test purposes
 				shp_out.timestamp 		= timestamp;
-				shp_out.roll 			= xhat(0) + distribution(generator); //Noisy outputs
-				shp_out.pitch 			= xhat(1) + distribution(generator);
-				shp_out.yaw 			= xhat(2) + distribution(generator);
-				shp_out.x 				= xhat(9) + distribution(generator);
-				shp_out.y 				= xhat(10) + distribution(generator);
-				shp_out.z 				= xhat(11) + distribution(generator);
+				shp_out.roll 			= y(0) + distribution(generator); //Noisy outputs
+				shp_out.pitch 			= y(1) + distribution(generator);
+				shp_out.yaw 			= y(2) + distribution(generator);
+				shp_out.x 				= y(6) + distribution(generator);
+				shp_out.y 				= y(7) + distribution(generator);
+				shp_out.z 				= y(8) + distribution(generator);
 				shp_out.roll_ground_truth	= roll;
 				shp_out.pitch_ground_truth 	= pitch;
 				shp_out.yaw_ground_truth 	= yaw;
+
+				//NLO observer outputs:
+				nlo_out.timestamp = timestamp;
+				nlo_out.roll 		= Qx(0);
+				nlo_out.pitch		= Qx(1);
+				nlo_out.yaw 		= Qx(2);
+				nlo_out.x 			= Qx(9);
+				nlo_out.y 			= Qx(10);
+				nlo_out.z 			= Qx(11);
 
 				//XKF filter outputs:
 				xkf_out.timestamp 	= timestamp;
@@ -417,7 +454,7 @@ void shp_module::run()
 				xkf_out.y 			= xhat(10);
 				xkf_out.z 			= xhat(11);
 
-				//Residual outputs:
+				//Residual outputs XKF:
 				res_out.timestamp 	= timestamp;
 				res_out.roll_r 		= y(0) - xhat(0);
 				res_out.pitch_r 	= y(1) - xhat(1);
@@ -429,6 +466,8 @@ void shp_module::run()
 				orb_publish(ORB_ID(shp_output), shp_pub_fd, &shp_out);
 				orb_publish(ORB_ID(xkf_output), xkf_pub_fd, &xkf_out);
 				orb_publish(ORB_ID(xkf_residual_output), res_pub_fd, &res_out);
+				orb_publish(ORB_ID(NLO_output), nlo_pub_fd, &nlo_out);
+
 
 				orb_check(pos_fd, &updated);
 
@@ -436,11 +475,11 @@ void shp_module::run()
 				//std::cout << "dt: " <<  dt << std::endl;
 				//std::cout << xhatdot << std::endl;
 				//std::cout << act.output[0] << "   " << act.output[1] << "    " << act.output[2] << "    " << act.output[3] << std::endl; 
-				myfile << time_flying << " " << xhat(0) << " " << xhat(1)<<  " " << xhat(2)<< " " << xhat(9) <<" " << xhat(10) <<" " << xhat(11) << std::endl;// << " " << taux << " " << tauy << " " << tauz << " " << ft << std::endl;
+				//myfile << time_flying << " " << xhat(0) << " " << xhat(1)<<  " " << xhat(2)<< " " << xhat(9) <<" " << xhat(10) <<" " << xhat(11) << std::endl;// << " " << taux << " " << tauy << " " << tauz << " " << ft << std::endl;
 				//std::cout << xhat << std::endl;
 				//std::cout << y;
-				time_flying += dt;
-				actfile << time_flying << " " << act.output[0] << " " << act.output[1] << " " << act.output[2] << " " << act.output[3] << std::endl; 
+				//time_flying += dt;
+				//actfile << time_flying << " " << act.output[0] << " " << act.output[1] << " " << act.output[2] << " " << act.output[3] << std::endl; 
 				
 				
 				// TODO: do something with the data...
